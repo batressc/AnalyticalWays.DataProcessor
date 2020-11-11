@@ -2,6 +2,7 @@ using AnalyticalWays.DataProcessor.Contracts;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -16,6 +17,8 @@ namespace AnalyticalWays.DataProcessor {
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken) {
+            Stopwatch control = new Stopwatch();
+            control.Start();
             bool resultado = false;
             string filename = "Stock.CSV";
             if (await _store.FileExists(filename)) {
@@ -26,6 +29,8 @@ namespace AnalyticalWays.DataProcessor {
             } else {
                 _logger.LogWarning("No se procesaron los datos", DateTimeOffset.Now);
             }
+            control.Stop();
+            _logger.LogInformation("Tiempo total de ejecución: {0}", control.Elapsed.TotalMinutes);
         }
     }
 }
