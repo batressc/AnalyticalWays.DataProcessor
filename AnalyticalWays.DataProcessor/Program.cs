@@ -7,6 +7,7 @@ namespace AnalyticalWays.DataProcessor {
         }
 
         public static IHostBuilder CreateHostBuilder(string[] args) =>
-            Host.CreateDefaultBuilder(args).UseStartup<Startup>();
+            Host.CreateDefaultBuilder(args)
+                .UseStartup<Startup>();
     }
 }

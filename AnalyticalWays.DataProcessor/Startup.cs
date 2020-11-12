@@ -1,4 +1,5 @@
-﻿using AnalyticalWays.DataProcessor.Contracts;
+﻿using AnalyticalWays.DataProcessor.Configuration;
+using AnalyticalWays.DataProcessor.Contracts;
 using AnalyticalWays.DataProcessor.Implementations;
 using AnalyticalWays.DataProcessor.Model;
 using Microsoft.EntityFrameworkCore;
@@ -14,19 +15,21 @@ namespace AnalyticalWays.DataProcessor {
         public IConfiguration Configuration { get; }
 
         public void ConfigureServices(IServiceCollection services) {
-            //services.AddDbContext<AnalyticalWaysTestDbContext>(options => {
-            //    // Si hay problemas con transacciones, consultar este link
-            //    // https://docs.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency
-            //    options.UseSqlServer(Configuration.GetConnectionString("AnalyticalWaysDatabase"), opt => {
-            //        opt.EnableRetryOnFailure();
-            //    });
-            //    options.EnableDetailedErrors(true);
-            //    options.EnableSensitiveDataLogging(true);
-            //});
-            //services.AddTransient<IDataOperations<StockInformation>, EntityFrameworkDataOperations>();
+            // Mapeo de configuración a clase
+            services.Configure<CsvProcessorConfiguration>(Configuration.GetSection("CsvProcessorConfiguration"));
+            // Configuración de servicios
+            // NOTA: Quitar comentarios entre las líneas 22 a 29 y comentar línea 30 si se desea probar mediante EF Core
+            /*services.AddDbContext<AnalyticalWaysTestDbContext>(options => {
+                options.UseSqlServer(Configuration.GetConnectionString("AnalyticalWaysDatabase"), opt => {
+                    opt.EnableRetryOnFailure();
+                });
+                options.EnableDetailedErrors(true);
+                options.EnableSensitiveDataLogging(true);
+            });
+            services.AddTransient<IDataOperations<StockInformation>, EntityFrameworkDataOperations>();*/
             services.AddTransient<IDataOperations<StockInformation>, ADODataOperations>();
             services.AddTransient<IStorageOperations, AzureBlobStorageOperations>();
-
+            // Proceso de tratamiento de archivo CSV
             services.AddHostedService<CsvProcessor>();
         }
     }
