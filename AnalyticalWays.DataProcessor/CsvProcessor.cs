@@ -112,37 +112,45 @@ namespace AnalyticalWays.DataProcessor {
         /// <param name="filename">Ruta del archivo</param>
         /// <param name="channel">Channel utilizado para la gestión de la información</param>
         /// <param name="cancellationToken">Token de cancelación</param>
+        /// <param name="cts">Cancelation token source utilizado para detener los procesos paralelos</param>
         /// <returns>Tarea de recuperación y preparación de datos</returns>
-        private async Task<TimeSpan> PrepararDatos(string filename, Channel<StockInformation> channel, CancellationToken cancellationToken) {
+        private async Task<TimeSpan> PrepararDatos(string filename, Channel<StockInformation> channel, CancellationToken cancellationToken, CancellationTokenSource cts) {
             List<(string linea, int registro, string mensaje)> registrosErroneos = new List<(string linea, int registro, string mensaje)>();
             int registro = 0;
             _logger.LogInformation($"Iniciando lectura de archivo \"{_conf.BlobStorageConfiguration.FileName}\"...");
             Stopwatch cronometro = new Stopwatch();
             cronometro.Start();
-            // Recuperando stream desde el storage
-            Stream stream = await _storage.ReadFile(filename, cancellationToken);
-            using StreamReader reader = new StreamReader(stream);
-            bool primeraLinea = true;
-            // Iterando sobre el stream
-            while (!reader.EndOfStream) {
-                registro++;
-                string linea = await reader.ReadLineAsync();
-                if (primeraLinea) {
-                    primeraLinea = false;
-                    continue;
+            try {
+                // Recuperando stream desde el storage
+                Stream stream = await _storage.ReadFile(filename, cancellationToken);
+                using StreamReader reader = new StreamReader(stream);
+                bool primeraLinea = true;
+                // Iterando sobre el stream
+                while (!reader.EndOfStream) {
+                    registro++;
+                    string linea = await reader.ReadLineAsync();
+                    if (primeraLinea) {
+                        primeraLinea = false;
+                        continue;
+                    }
+                    // Transformando cadena a datos de Stock
+                    (StockInformation info, string mensaje) = StringToStockInformation(linea);
+                    if (info != null) {
+                        // Agregando inforamción al Channel para procesamiento por consumidores
+                        await channel.Writer.WriteAsync(info, cancellationToken);
+                    } else {
+                        // Agregando registro erroneo para log de seguimiento de errores
+                        registrosErroneos.Add((linea, registro, mensaje));
+                    }
                 }
-                // Transformando cadena a datos de Stock
-                (StockInformation info, string mensaje) = StringToStockInformation(linea);
-                if (info != null) {
-                    // Agregando inforamción al Channel para procesamiento por consumidores
-                    await channel.Writer.WriteAsync(info, cancellationToken);
-                } else {
-                    // Agregando registro erroneo para log de seguimiento de errores
-                    registrosErroneos.Add((linea, registro, mensaje));
+                // Indicamos al Channel que ya no vamos a enviar más datos
+                channel.Writer.Complete();
+            } catch (Exception ex) {
+                _logger.LogError(ex, $"Ha ocurrido un error inesperado durante la lectura del archivo{(_conf.SQLProcessingConfiguration.AbortOnError ? ". Se detiene el procesamiento de datos" : "")}");
+                if (_conf.BlobStorageConfiguration.AbortOnError) {
+                    cts.Cancel();
                 }
             }
-            // Indicamos al Channel que ya no vamos a enviar más datos
-            channel.Writer.Complete();
             // Preparando archivo de registros erroneos
             if (registrosErroneos.Count > 0) {
                 await CrearLogRegistrosErroneos(registrosErroneos, cancellationToken);
@@ -162,18 +170,24 @@ namespace AnalyticalWays.DataProcessor {
         /// <param name="proceso">Identificador del proceso</param>
         /// <param name="totalElementos">Total de elementos insertados</param>
         /// <param name="cancellationToken">Token de cancelación</param>
-        private async Task AgregarDatos(Stopwatch cronometro, List<StockInformation> batchStock, TimeSpan tiempoGuardado, int proceso, int totalElementos, CancellationToken cancellationToken) {
+        /// <param name="cts">Cancelation token source utilizado para detener los procesos paralelos</param>
+        private async Task AgregarDatos(Stopwatch cronometro, List<StockInformation> batchStock, TimeSpan tiempoGuardado, int proceso, int totalElementos, CancellationToken cancellationToken, CancellationTokenSource cts) {
+            bool fueError = false;
             cronometro.Start();
             try {
                 await _data.AppendData(batchStock, cancellationToken);
             } catch (Exception ex) {
-                _logger.LogError(ex, $"Ha ocurrido un error inesperado al guardar la información del proceso #{proceso}. Se detiene el procesamiento");
-                throw;
+                fueError = true;
+                _logger.LogError(ex, $"Ha ocurrido un error inesperado al guardar la información del proceso #{proceso}. {(_conf.SQLProcessingConfiguration.AbortOnError ? "Se detiene el procesamiento de datos" : "")}");
+                // Si se especifica en la configuración, se detienen todos los subprocesos de procesamiento
+                if (_conf.SQLProcessingConfiguration.AbortOnError) {
+                    cts.Cancel();
+                }
             }
             batchStock.Clear();
             cronometro.Stop();
             tiempoGuardado += cronometro.Elapsed;
-            _logger.LogDebug($"Total de registros escritos por proceso #{proceso}: {totalElementos} | Tiempo: {cronometro.Elapsed.Hours:00}:{cronometro.Elapsed.Minutes:00}:{cronometro.Elapsed.Seconds:00}.{cronometro.Elapsed.Milliseconds:000}/{tiempoGuardado.Hours:00}:{tiempoGuardado.Minutes:00}:{tiempoGuardado.Seconds:00}.{tiempoGuardado.Milliseconds:000}");
+            _logger.LogDebug($"Total de registros escritos por proceso #{proceso}: {(fueError ? 0 : totalElementos)} | Tiempo: {cronometro.Elapsed.Hours:00}:{cronometro.Elapsed.Minutes:00}:{cronometro.Elapsed.Seconds:00}.{cronometro.Elapsed.Milliseconds:000}/{tiempoGuardado.Hours:00}:{tiempoGuardado.Minutes:00}:{tiempoGuardado.Seconds:00}.{tiempoGuardado.Milliseconds:000}");
             cronometro.Reset();
         }
 
@@ -183,7 +197,7 @@ namespace AnalyticalWays.DataProcessor {
         /// <param name="channel">Channel utilizado para la gestión de la información</param>
         /// <param name="cancellationToken">Token de cancelación</param>
         /// <returns>Tarea de lectura y almacenamiento de datos</returns>
-        private async Task<TimeSpan> GuardarDatos(int proceso, Channel<StockInformation> channel, CancellationToken cancellationToken) {
+        private async Task<TimeSpan> GuardarDatos(int proceso, Channel<StockInformation> channel, CancellationToken cancellationToken, CancellationTokenSource cts) {
             _logger.LogDebug($"Iniciando proceso #{proceso}");
             TimeSpan tiempoGuardado = new TimeSpan();
             Stopwatch cronometro = new Stopwatch();
@@ -198,13 +212,13 @@ namespace AnalyticalWays.DataProcessor {
                 elementosBatch += 1;
                 totalElementos += 1;
                 if (elementosBatch >= _conf.SQLProcessingConfiguration.BatchSize) {
-                    await AgregarDatos(cronometro, batchStock, tiempoGuardado, proceso, totalElementos, cancellationToken);
+                    await AgregarDatos(cronometro, batchStock, tiempoGuardado, proceso, totalElementos, cancellationToken, cts);
                     elementosBatch = 0;
                 }
             }
             // Agregando datos remanentes 
             if (batchStock.Count != 0) {
-                await AgregarDatos(cronometro, batchStock, tiempoGuardado, proceso, totalElementos, cancellationToken);
+                await AgregarDatos(cronometro, batchStock, tiempoGuardado, proceso, totalElementos, cancellationToken, cts);
             }
             _logger.LogDebug($"Finalizado proceso #{proceso}");
             return tiempoGuardado;
@@ -227,16 +241,19 @@ namespace AnalyticalWays.DataProcessor {
                     }
                     // Creando Channel para gestión nativa de patrón productor-consumidor
                     Channel<StockInformation> canal = Channel.CreateUnbounded<StockInformation>();
+                    // Creando token de cancelación para parada manual (basado en token del BackgroundService)
+                    CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                    CancellationToken ctoken = cts.Token;
+                    // Creando procesos
                     List<Task<TimeSpan>> procesos = new List<Task<TimeSpan>> {
-                        Task.Run(() => PrepararDatos(_conf.BlobStorageConfiguration.FileName, canal, stoppingToken))
+                        Task.Run(() => PrepararDatos(_conf.BlobStorageConfiguration.FileName, canal, ctoken, cts))
                     };
                     for (int i = 1; i <= tareas; i++) {
                         int proceso = i;
-                        procesos.Add(Task.Run(() => GuardarDatos(proceso, canal, stoppingToken)));
+                        procesos.Add(Task.Run(() => GuardarDatos(proceso, canal, ctoken, cts)));
                     }
                     // Ejecutando procesos
                     TimeSpan[] procesamiento = await Task.WhenAll(procesos);
-                    // Mostrando tiempos de procesamiento
                     MostrarTiempos(procesamiento);
                 }
                 cronometro.Stop();

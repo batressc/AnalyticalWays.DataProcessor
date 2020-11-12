@@ -19,5 +19,9 @@
         /// Tamaño del buffer de descarga
         /// </summary>
         public int DownloadBufferSizeMB { get; set; }
+        /// <summary>
+        /// Determina si la lectura del archivo debe deternerse si ocurre un error
+        /// </summary>
+        public bool AbortOnError { get; set; }
     }
 }
