@@ -22,7 +22,6 @@ namespace AnalyticalWays.DataProcessor.Implementations {
         /// Crea una nueva instancia de la clase <see cref="AzureBlobStorageOperations"/>
         /// </summary>
         /// <param name="conf">Servicio de configuración de la aplicación</param>
-        /// <param name="logger">Servicio de logging</param>
         public AzureBlobStorageOperations(IOptions<CsvProcessorConfiguration> conf) {
             _conf = conf.Value;
             _bsc = new BlobServiceClient(_conf.BlobStorageConfiguration.ConnectionString);

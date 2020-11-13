@@ -20,10 +20,8 @@ namespace AnalyticalWays.DataProcessor.Contracts {
         /// Obtiene la información del archivo especificado y permite aplicar las acciones a realizar con el Stream de datos del archivo
         /// </summary>
         /// <param name="filename">Nombre del archivo</param>
-        /// <param name="readAction">Tareas a realizar con el Stream del archivo</param>
         /// <param name="cancellationToken">Token de cancelación</param>
-        /// <returns>Indicador de éxito o fallo de la operación</returns>
-        //Task ReadFile(string filename, Action<Stream> readAction, CancellationToken cancellationToken);
+        /// <returns>Stream del archivo para su lectura</returns>
         Task<Stream> ReadFile(string filename, CancellationToken cancellationToken);
     }
 }

@@ -29,6 +29,8 @@ namespace AnalyticalWays.DataProcessor {
             services.AddTransient<IDataOperations<StockInformation>, EntityFrameworkDataOperations>();*/
             services.AddTransient<IDataOperations<StockInformation>, ADODataOperations>();
             services.AddTransient<IStorageOperations, AzureBlobStorageOperations>();
+            services.AddTransient<Producer>();
+            services.AddTransient<Consumer>();
             // Proceso de tratamiento de archivo CSV
             services.AddHostedService<CsvProcessor>();
         }
