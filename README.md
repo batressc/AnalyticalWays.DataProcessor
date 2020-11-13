@@ -107,7 +107,27 @@ A continuación se listan los paquetes Nuget utilizados en el proyecto y una bre
 
 ## <a name="logica-aplicacion"></a>Lógica de la aplicación
 
-Las tareas de descarga y procesamiento de archivos son muy frecuentes 
+Las tareas de descarga y procesamiento de archivos son muy frecuentes en las diversas aplicaciones de software, generalmente los pasos que involucran estas tareas 
+son la lectura de los datos del archivo a procesar y una vez ha finalizado se ejecuta un proceso de transformación o almacenamiento. 
+
+El problema de este esquema surge cuando se tienen archivos de gran tamaño ya que durante el proceso de lectura es común que no se pueda realizar ninguna acción, a esto debe 
+sumársele las condiciones del entorno de almacenamiento, por ejemplo si el archivo está almacenado en la nube y la conexión a internet es de baja calidad o lenta.
+
+**Debido a esto, el primer objetivo a buscar en la aplicación es implementar un sistema _"estilo streaming:_ Descargar una porción del archivo para que en paralelo pueda procesarse y
+a la vez continuar con la descarga de la siguiente porción hasta su finalización.**
+
+Si bien con la medida anterior se reduciría el tiempo muerto entre la descarga y el procesamiento, otro punto importante a tratar es el almacenamiento de la información en SQL Server.
+Tradicionalmente almacenar una decena de registros no impacta en tiempo de ejecución de las aplicaciones, pero en este caso se trata de millones de registros. Para ello, SQL Server posee
+operaciones especiales las cuales **permiten la inserción masiva de grandes cantidades de datos de forma eficiente: 
+[_bulk insert_](https://docs.microsoft.com/en-us/sql/t-sql/statements/bulk-insert-transact-sql?view=sql-server-ver15). Esto sumado a la capacidad de ejecutar varias tareas en paralelo** 
+aumentarian la eficiencia del procesamiento del bloque de datos.
+
+Trabajar con múltiples procesos es una actividad que requiere cuidado ya que es necesario sincronizar entre los involucrados las operaciones de lectura y escritura para evitar interbloqueos
+y duplicidad de lectura y/o procesamiento de la información. Para resolver este problema, se decidió la implementación del 
+[patrón de productor/consumidor](https://www.iodocs.com/es/patrones-de-diseno-de-aplicaciones-productor-consumidor/) ya que se ajusta a las especificaciones del flujo de la aplicación:
+
+* Se tiene uno o varios procesos encargados de la lectura del archivo CSV mediante _streaming_
+* Se tienen uno o varios procesos encargados del procesamiento y envío de inforamción a SQL Server.
 
 
 
@@ -314,6 +334,53 @@ public void ConfigureServices(IServiceCollection services) {
 }
 ```
 
+### Visualización de ejecución de aplicación
+
+Se utiliza la implementación estandar del servicio `ILogger<T>` para la visualización de los diversos mensajes de seguimiento en la aplicación. Dependiendo del nivel de seguimiento 
+configurado en el archivo [appsettings.json](https://github.com/batressc/AnalyticalWays.DataProcessor/blob/master/AnalyticalWays.DataProcessor/appsettings.json) así serán visibles los 
+mensajes en la consola de la aplicación.
+
+Se recomienda utilizar las siguientes configuraciones:
+
+##### Visualización resumida
+
+Mediante esta configuración solamente serán visibles los mensajes iniciales de inicio de la aplicación y los tiempos finales del procesamiento. Para ello, en el archivo 
+[appsettings.json](https://github.com/batressc/AnalyticalWays.DataProcessor/blob/master/AnalyticalWays.DataProcessor/appsettings.json) debe configurarse la sección **Logging** de la 
+siguiente forma:
+
+```json
+"Console": {
+    "LogLevel": {
+        "Default": "Information"
+    }
+}
+```
+
+En la siguiente imagen se puede visualizar la forma de presentación de mensajes en la consola de la aplicación una vez ha finalizado su ejecución.
+
+![Consola de aplicación en modo resumen](http://batressc.com/analyticalways/EjecucionInformacion.PNG)
+
+##### Visualización detallada
+
+Mediante esta configuración se muestran todos los mensajes seguimiento del proceso de carga de información a SQL Server. Para ello, en el archivo 
+[appsettings.json](https://github.com/batressc/AnalyticalWays.DataProcessor/blob/master/AnalyticalWays.DataProcessor/appsettings.json) debe configurarse la sección **Logging** de la 
+siguiente forma:
+
+```json
+"Console": {
+    "LogLevel": {
+        "Default": "Debug"
+    }
+}
+```
+
+En la siguiente imagen se puede visualizar la forma de presentación de mensajes en la consola de la aplicación al iniciar el procesamiento.
+
+![Consola de aplicación en modo debug - inicio de aplicación](http://batressc.com/analyticalways/EjecucionDebug00.PNG)
+
+En la siguiente imagen se puede visualizar los registros de seguimiento del tiempo de procesamiento por cada tarea.
+
+![Consola de aplicación en modo debug - inicio de aplicación](http://batressc.com/analyticalways/EjecucionDebug01.PNG)
 
 
 
